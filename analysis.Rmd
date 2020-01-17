@@ -1,0 +1,404 @@
+---
+title: "scRNASeq CHAT Analysis Details"
+author: "The CHAT Group"
+date: "1/17/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, 
+                      results = FALSE, 
+                      message = FALSE, 
+                      warning = FALSE)
+```
+
+## Intro
+
+This repository contains the code and data that were used to perform the 
+analysis of human scRNASeq data from patients undergoing VA-ECLS in support of 
+our paper describing the presence and function of human CD4+ cells expressing 
+CHAT. Using the code and data provided here, the panels of Figure 1 of that 
+paper can be reproduced.
+
+Please note that this repo contains large data files required to reproduce key
+elements of the our CHAT cell analysis. If you do not have Git LFS installed,
+you will only get the soft links to these files, not the files themselves, when
+you clone the repo. That is fine, unless you want to reproduce the analysis (as
+opposed to just reviewing the code).
+
+Luckily, LFS support is easy to install. See here: https://git-lfs.github.com
+
+## Dataset and Cell Classification
+
+Alra imputation (https://github.com/KlugerLab/ALRA) was performed on the
+original scRNASeq dataset (GSE127221). But to use the Monocole pipeline, raw 
+counts were back computed from the normalized/transformed imputed values (by 
+taking the natural log, subtracting 1, and dividing by 10,000). This data is 
+in cds_rd.rds in the `final_data` folder. Cells were defined based on 
+following definitions.
+
+```{r, eval=FALSE}
+library(monocle3)
+
+ # this cds contains reconstituted counts based on ALRA imputation
+ # reduce_dimensions has been run on it, but we will run it again below
+
+cds <- readRDS("final_data/cds_rd.rds")
+dat.imp <- t(normalized_counts(cds))
+
+   
+library(foreach)
+cellTypeDefs <- list(
+  "B Cells" = list(markers = c("CD19", "CD3"),
+                       gate = c(1, 0)),
+
+  # CD4 subpopulations can by CD2+/- and FOXP3 +/-, but not double positive
+  # Except for CD4 regulatory T which are double positive
+  "CD4+ Naive T" = list(markers = c("CD3", "CD4", "CD8", "CD2", "FOXP3", 
+                                    "NCAM1"),
+                       gate = c(1, 1, 0, 0, 0, 0)),
+  "CD4+ Naive T" = list(markers = c("CD3", "CD4", "CD8", "CD2", "IL2RA", 
+                                    "FOXP3", "NCAM1" ),
+                       gate = c(1, 1, 0, 0, 0, 1, 0)),
+  "CD4+ Memory T" = list(markers = c("CD3", "CD4", "CD8", "CD2", "B3GAT1", 
+                                     "FOXP3", "NCAM1"),
+                       gate = c(1, 1, 0, 1, 0, 0, 0)),
+  "CD4+ Memory T" = list(markers = c("CD3"
+                                     , "CD4", "CD8", "CD2", "B3GAT1", "IL2RA", 
+                                     "FOXP3", "NCAM1"),
+                       gate = c(1, 1, 0, 1, 0, 0, 1, 0)),
+  "CD4+ Effector T" = list(markers = c("CD3", "CD4", "CD8", "CD2", "B3GAT1", 
+                                       "FOXP3", "NCAM1"),
+                       gate = c(1, 1, 0, 1, 1, 0, 0)),
+  "CD4+ Effector T" = list(markers = c("CD3", "CD4", "CD8", "CD2", "B3GAT1", 
+                                       "IL2RA", "FOXP3", "NCAM1"),
+                       gate = c(1, 1, 0, 1, 1, 0, 1, 0)),
+  "CD4+ Reg T" = list(markers = c("CD3", "CD4", "CD8", "IL2RA", "FOXP3", 
+                                  "NCAM1"),
+                       gate = c(1, 1, 0, 1, 1, 0)),
+  
+  "CD4+ TH1" = list(markers = c("CD3", "CD4", "CD8", "IFNG", "IL4", "CXCR3"),
+                       gate = c(1, 1, 0, 1, 0, 1)),
+  
+  "CD4+ TH2" = list(markers = c("CD3", "CD4", "CD8", "IFNG", "IL4", "PTGDR2", 
+                                "CCR4"),
+                       gate = c(1, 1, 0, 0, 1, 1, 1)),
+
+  "CD4+ TH17" = list(markers = c("CD3", "CD4", "CD8", "IL17A", "IL17B", "CCR6"),
+                       gate = c(1, 1, 0, 1, 1, 1)),
+
+  "CD8+ Memory T" = list(markers = c("CD3", "CD4", "CD8", "CD2", "B3GAT1", 
+                                     "NCAM1"),
+                       gate = c(1, 0, 1, 1, 0, 0)),
+  "CD8+ Naive T" = list(markers = c("CD3", "CD4", "CD8", "CD2", "NCAM1"),
+                       gate = c(1, 0, 1, 0, 0)),
+  "CD8+ Effector T" = list(markers = c("CD3", "CD4", "CD8", "CD2", "B3GAT1", 
+                                       "NCAM1"),
+                       gate = c(1, 0, 1, 1, 1, 0)),
+  
+  "NKT CD4+" = list(markers = c("CD3", "CD4", "CD8", "CD19", "NCAM1"),
+                       gate = c(1, 1, 0, 0, 1)),
+
+  "NKT CD8+" = list(markers = c("CD3", "CD4", "CD8", "CD19", "NCAM1"),
+                       gate = c(1, 0, 1, 0, 1)),
+
+  "NKT CD4- CD8-" = list(markers = c("CD3", "CD4", "CD8", "CD19", "NCAM1"),
+                       gate = c(1, 0, 0, 0, 1)),
+  
+  "NK" = list(markers = c("CD3", "CD19", "NCAM1"),
+                       gate = c(0, 0, 1)),
+  
+  "Monocytes" = list(markers = c("CD14", "CD2", "CXCR2"),
+                       gate = c(1, 1, 1)),
+  
+  "DC" = list(markers = c("CD3", "CD14", "CD19", "NCAM1", "CEACAM8", "CD1C", 
+                          "HLA-DRA"),
+                       gate = c(0, 0, 0, 0, 0, 1, 1)),
+  
+  "Erythrocytes" = list(markers = c("HBA1"),
+                       gate = c(7))
+)
+
+
+classify <- function(dat, types) {
+  class <- rep(NA, nrow(dat))
+  res <- foreach(i = 1:length(types)) %do% {
+    m <- types[[i]][["markers"]]
+    cl <- foreach(j = 1:length(types[[i]][["markers"]]), .combine = "&") %do% {
+      if(types[[i]][["gate"]][j]) {
+        if(types[[i]][["markers"]][j] == "CD3") {
+          return(dat[ , "CD3D"] > types[[i]][["gate"]][j] - 1 |
+                   dat[ , "CD3E"] > types[[i]][["gate"]][j] - 1 | 
+                   dat[ , "CD3G"] > types[[i]][["gate"]][j] - 1 ) 
+        } else if(types[[i]][["markers"]][j] == "CD8") {
+          return(dat[ , "CD8A"] > types[[i]][["gate"]][j] - 1 |
+                   dat[ , "CD8B"] > types[[i]][["gate"]][j] - 1 | 
+                   dat[ , "CD8B2"] > types[[i]][["gate"]][j] - 1 ) 
+        } else {
+          return(dat[ , m[j]] > types[[i]][["gate"]][j] - 1) 
+        }
+      } else {
+        if(types[[i]][["markers"]][j] == "CD3") {
+          return(dat[ , "CD3D"] == 0 &
+                   dat[ , "CD3E"] == 0 )
+        } else if(types[[i]][["markers"]][j] == "CD8") {
+          return(dat[ , "CD8A"] == 0 &
+                   dat[ , "CD8B"] == 0 & 
+                   dat[ , "CD8B2"] == 0 ) 
+        } else {
+          return(dat[ , m[j]] == 0) 
+        }
+      }
+    }
+    if(length(which(cl)) > 0) {
+      
+      class[which(cl & !is.na(class))] <- "AMBIG"
+      class[which(cl & is.na(class))] <- names(types)[i]
+    }
+  }
+  
+  class
+}
+
+types <- classify(dat.imp, cellTypeDefs)
+types[ which(types == "AMBIG") ] <- NA
+types[ which(is.na(types)) ] <- "Unknown"
+colData(cds)$cell_type <- types
+saveRDS(cds, "final_data/cds_rd.rds")
+```
+
+## Patient selection
+
+We limit our analysis to those patients with more than 10 CD4+ lymphocytes to 
+analyze.
+
+```{r}
+
+library(monocle3)
+
+cds <- readRDS("final_data/cds_rd.rds")
+ix <- grep("CD4\\+", pData(cds)$cell_type)
+cds <- cds[ ,ix]
+
+ix.gt10 <- which(table(pData(cds)$Sample_ID) > 10)
+ids.gt10 <- names(table(pData(cds)$Sample_ID))[ix.gt10]
+ix.cds <- which(pData(cds)$Sample_ID %in% ids.gt10)
+cds <- cds[,ix.cds]
+pData(cds)$Sample_ID <- factor(pData(cds)$Sample_ID)
+saveRDS(cds, "final_data/cds_rd_gt10.rds")
+
+```
+
+## CHAT Expression levels
+
+First we can look at the distribution of CHAT counts among the CD4+ T 
+Lymphocytes. We can visualize this either as a violin plot or a sorted line 
+plot.
+
+```{r}
+library(ggplot2)
+library(monocle3)
+
+cds <- readRDS("final_data/cds_rd_gt10.rds")
+
+gd <- data.frame(counts = as.vector(normalized_counts(cds)["CHAT", ]))
+a <- ggplot(gd, aes(x=" ", y=counts)) +
+  geom_violin(width=0.4, fill="black") + 
+  xlab(" ") + 
+  ylab("CD4+ CHAT Expression\n(log normalized counts)") +
+  theme_bw()
+
+
+b <- ggplot(gd, aes(x=1:length(gd$counts), y=sort(counts))) +
+  geom_line() + 
+  xlab(" ") + 
+  ylab("Sorted CD4+ CHAT Expression\n(log normalized counts)") +
+  theme_bw()
+
+library(ggpubr)
+svg(file="Figures/chat_violin.svg", height=3, width=7)
+ggarrange(a + theme(plot.margin = unit(c(1,0,0,1), "cm")),
+          b + theme(plot.margin = unit(c(1,0,0,1), "cm")), 
+          labels = c("A", "B"))
+dev.off()
+```
+
+We can also look at expression of some other markers of interest.
+
+```{r}
+library(reshape2)
+
+ix.g <- which(rownames(cds) %in% c("CHAT", "CD4", "CD8A", "PPIA", "B2M"))
+gd <- normalized_counts(cds)[ix.g, ]
+gd <- as.data.frame(t(as.matrix(gd)))
+gd_m <- melt(gd)
+a <- ggplot(gd_m, aes(x=" ", y=value)) +
+  geom_violin(width=0.4, fill="black") + 
+  xlab(" ") + 
+  ylab("CD4+ CHAT Expression\n(log normalized counts)") +
+  facet_wrap( ~ variable) +
+  theme_bw()
+
+svg(file="Figures/chat_related_violin.svg", height=5, width=7)
+print(a)
+dev.off()
+```
+
+We can also see how chat varies by patient.
+
+```{r}
+library(ggplot2)
+library(gridExtra)
+library(ggpubr)
+
+# get proportion of cd4 cells that are CHAT positive
+cd4 <- table(pData(cds)$Sample_ID)
+cd4_chat <- table(pData(cds)$Sample_ID,
+                  normalized_counts(cds)["CHAT",]>0)[,'TRUE']
+chatp <- cd4_chat/cd4
+
+gd <- data.frame(counts = as.vector(normalized_counts(cds)["CHAT",]),
+                 sample = pData(cds)$Sample_ID)
+gd$sample <- gsub("Patient_", "", as.character(gd$sample))
+gd$sample <- factor(gd$sample, labels=c(1:33))
+
+# plot CHAT expression among CD4+ cells for each patient
+p<-ggplot(gd, aes(x=sample, y=counts)) +
+  geom_jitter(width=0.1, fill="gray", size=0.2, alpha=0.5) + 
+  xlab(" ") + 
+  ylab("CD4+ CHAT Expression\n(log normalized counts)") +
+  theme_bw()
+
+# add annotation table below plot to cross-check
+df <- data.frame(proportion = as.vector(round(chatp,2)), 
+                 cd4 = as.vector(cd4),
+                 cd4_chat = as.vector(cd4_chat),
+                 ID = as.numeric(gsub("Patient_", "", names(cd4))))
+df <- df[order(df$ID),]
+
+tab_theme <- gridExtra::ttheme_default(
+    core = list(fg_params=list(cex = 0.5, col="#333333"),
+            bg_params = list(col="#ffffff", fill="#ffffff", lwd=0)),
+    colhead = list(fg_params=list(cex = 0.5)),
+    rowhead = list(fg_params=list(cex = 0.5)))
+
+b <- tableGrob(t(df[ ,1:3]), 
+                cols=NULL, 
+                theme=tab_theme) 
+b$widths <- unit(rep(.96*(1/ncol(b)), ncol(b)), "npc")
+b$widths[1] <- unit(.04 * (1/ncol(b)) * ncol(b), "npc")
+
+c <- ggpubr::as_ggplot(b)
+f <- arrangeGrob(p + theme(plot.margin = unit(c(0.5,.25,0,.25), "cm")), 
+             c + theme(plot.margin = unit(c(0,0,0,.2), "cm")), 
+             nrow=2,
+             heights = c(.8, .2))
+svg(file="Figures/chat_bypatient.svg", height=4, width=12)
+grid::grid.draw(f)
+dev.off()
+```
+
+Next we plot the proportion of CHAT+ cells for each patient as single dot 
+plot to better visualize the distribution.
+
+```{r, eval=TRUE}
+
+gd <- data.frame(proportion = as.vector(chatp), 
+                 sample_id = names(chatp))
+
+low <- gd$sample_id[which(gd$proportion < 0.3)]
+med <- gd$sample_id[which(gd$proportion > 0.3 & gd$proportion < 0.62)]
+high <- gd$sample_id[which(gd$proportion > 0.62)]
+
+svg(file="Figures/chatp_violin.svg", height=4, width=3)
+ggplot(gd, aes(x=" ", y=proportion)) + 
+#  geom_violin(width=0.2, fill="#cccccc") + 
+  geom_jitter(width=0.1) +
+  ylim(0,1) +
+  xlab(" ") + 
+  ylab("CHAT+ / All CD4+ Lymphocytes") +
+  theme_bw()
+
+dev.off()
+
+
+```
+
+## UMAP Plot
+
+It is sometimes instructive to visualize the scRNASeq data reduced to 2 
+dimensions using the UMAP algorithm. Here we produce these plots to see if 
+there is clustering of CHAT+ cells among all CD4+ cells, or subpopulations of 
+CD4+ cells.
+
+## UMAP
+
+```{r}
+cds = align_cds(cds, num_dim = 100, alignment_group = "Sample_ID")
+cds <- reduce_dimension(cds, umap.metric = "euclidean")
+pData(cds)$CHATP <- normalized_counts(cds)['CHAT',] > 0
+pData(cds)$cell_type <- factor(pData(cds)$cell_type)
+
+svg(filename="Figures/umap_type.svg", width = 5.5, height=4)
+plot_cells(cds, color_cells_by = "cell_type", cell_size = 1, alpha=0.5, label_cell_groups = FALSE) + 
+  scale_color_brewer(palette="Set1")
+dev.off()
+
+svg(filename="Figures/umap_chatp.svg", width = 5, height=4)
+plot_cells(cds, color_cells_by = "CHATP", cell_size = 1, alpha=0.5, label_cell_groups = FALSE) + 
+  scale_color_brewer(palette="Set1")
+dev.off()
+
+svg(filename="Figures/umap_chatp_stratified.svg", width = 8, height=7)
+plot_cells(cds, color_cells_by = "CHATP", cell_size = 1, alpha=0.5, label_cell_groups = FALSE) + 
+  scale_color_brewer(palette="Set1") + 
+  facet_wrap(~ cell_type + CHATP)
+dev.off()
+
+```
+
+## Survival analysis
+
+Here we determine whether the proportion of CHAT+ cells among all CD4+ cells 
+is related to survival, using the median proportion as the cutoff for the 
+Kaplan Meijer analysis.
+
+```{r}
+library(survival)
+library(survminer)
+
+# load survival data
+md <- readRDS("final_data/metadata.rds")
+
+ix <- match(md$Sample_ID, names(chatp))
+md$cellp <- chatp[ix]
+
+# censor survival at 30 days
+md$surv_time2 <- md$surv_time
+md$surv_time2[which(md$surv_time2 > 720)] <- 720
+surv <- Surv(time = md$surv_time2, event = md$surv_time2 < 720)
+md$surv <- surv
+
+
+# binarize proportion of CD4+ cells that are ChAT+ using median as cutoff.
+md$high_count <- factor(md$cellp > median(md$cellp, na.rm=TRUE), 
+                        labels=c("Low", "High"))
+#survdiff(surv ~ high_count, data = md)
+
+# And plot the Kaplan Meier curves along with log-rank test p-value
+svg(filename = "Figures/chat_p_30day_survival.svg", width=5, height=3)
+p <- ggsurvplot(survfit(surv ~ high_count, data=md), 
+           color = "black", 
+           ggtheme = theme(legend.title = element_text(size=10, face="bold"),
+                           legend.text = element_text(size=10)), 
+           data=md, 
+           pval=TRUE,
+           pval.size = 3.5,
+           linetype = "strata",
+           risk.table = TRUE,
+           legend.labs = c("Low", "High") )
+print(p)
+dev.off()
+
+```
+
