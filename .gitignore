@@ -38,9 +38,6 @@ vignettes/*.pdf
 # Shiny token, see https://shiny.rstudio.com/articles/shinyapps.html
 rsconnect/
 
-# All html
-*.html
-
 # Any pdf
 *.pdf
 

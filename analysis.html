@@ -688,17 +688,18 @@ md$high_count &lt;- factor(md$cellp &gt; median(md$cellp, na.rm=TRUE),
 #survdiff(surv ~ high_count, data = md)
 
 # And plot the Kaplan Meier curves along with log-rank test p-value
-svg(filename = &quot;Figures/chat_p_30day_survival.svg&quot;, width=5, height=3)
+svg(filename = &quot;Figures/chat_p_30day_survival.svg&quot;, width=6, height=5)
 p &lt;- ggsurvplot(survfit(surv ~ high_count, data=md), 
            color = &quot;black&quot;, 
            ggtheme = theme(legend.title = element_text(size=10, face=&quot;bold&quot;),
-                           legend.text = element_text(size=10)), 
+                           axis.title = element_text(face=&quot;bold&quot;),
+                           legend.text = element_text(size=10)) + theme_bw(), 
            data=md, 
            pval=TRUE,
            pval.size = 3.5,
            linetype = &quot;strata&quot;,
            risk.table = TRUE,
-           legend.labs = c(&quot;Low&quot;, &quot;High&quot;) )
+           legend.labs = c(&quot;Low&quot;, &quot;High&quot;) ) 
 print(p)
 dev.off()</code></pre>
 </div>
